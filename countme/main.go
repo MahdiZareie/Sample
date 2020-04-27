@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	ln, err := net.Listen("tcp", ":8000")
+	ln, err := net.Listen("tcp", ":80")
 	if err != nil {
 		return
 	}
