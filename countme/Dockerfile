@@ -1,7 +1,8 @@
-FROM tiangolo/uwsgi-nginx:python3.7
-
-RUN pip install flask
-ENV UWSGI_CHEAPER 0
-ENV UWSGI_PROCESSES 1
-
-COPY . /app
+FROM golang:latest as build
+RUN go get -u github.com/labstack/echo/...
+RUN mkdir -p /go/src/countme
+COPY main.go /go/src/countme
+WORKDIR /go/src/countme
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o countme main.go
+EXPOSE 80
+ENTRYPOINT ./countme
