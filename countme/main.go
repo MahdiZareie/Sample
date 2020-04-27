@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -11,14 +12,16 @@ import (
 )
 
 func main() {
-	ln, err := net.Listen("tcp", ":80")
+	ln, err := net.Listen("tcp", ":8090")
 	if err != nil {
+		log.Println(err)
 		return
 	}
 	for {
 		conn, err := ln.Accept()
 
 		if err != nil {
+			log.Println(err)
 			return
 		}
 
@@ -35,18 +38,14 @@ func requestHandler(conn net.Conn) {
 	scanner := bufio.NewScanner(reader)
 
 	firstLine := ""
-	for scanner.Scan() {
-		firstLine = scanner.Text()
-		if len(firstLine) > 0 {
-			break
+	for len(firstLine) == 0 {
+		for scanner.Scan() {
+			firstLine = scanner.Text()
+			if len(firstLine) > 0 {
+				log.Println(scanner.Text())
+				break
+			}
 		}
-
-	}
-	if len(firstLine) < 2 {
-
-		_, _ = conn.Write([]byte("HTTP/1.1 200 OK\n\n"))
-		_ = conn.Close()
-		return
 	}
 
 	is_post := firstLine[0:1] == "P"
