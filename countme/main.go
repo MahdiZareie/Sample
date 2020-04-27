@@ -7,9 +7,25 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync/atomic"
-	"time"
+	"sync"
 )
+
+type SafeCounter struct {
+	v   int64
+	mux sync.Mutex
+}
+
+func (c *SafeCounter) Inc(value int64) {
+	c.mux.Lock()
+	c.v += value
+	c.mux.Unlock()
+}
+
+func (c *SafeCounter) Get() int64 {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	return c.v
+}
 
 func main() {
 	ln, err := net.Listen("tcp", ":80")
@@ -30,10 +46,10 @@ func main() {
 	}
 }
 
-var x int64 = 0
+var x = SafeCounter{}
 
 func requestHandler(conn net.Conn) {
-	_ = conn.SetDeadline(time.Now().Add(time.Millisecond * 2))
+	//_ = conn.SetDeadline(time.Now().Add(time.Millisecond * 2))
 	reader := bufio.NewReader(conn)
 	scanner := bufio.NewScanner(reader)
 
@@ -58,9 +74,11 @@ func requestHandler(conn net.Conn) {
 			last = scanner.Text()
 		}
 		num, _ := strconv.ParseInt(strings.Trim(last, " \n\r"), 10, 64)
-		atomic.StoreInt64(&x, num+x)
+
+		x.Inc(num)
+
 	} else {
-		s := fmt.Sprintf("HTTP/1.1 200 OK\n\n%d\r\n", x)
+		s := fmt.Sprintf("HTTP/1.1 200 OK\n\n%d\r\n", x.Get())
 
 		_, _ = conn.Write([]byte(s))
 		_ = conn.Close()
