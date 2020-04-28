@@ -1,7 +1,9 @@
-FROM golang:latest as build
-RUN mkdir -p /go/src/countme
-COPY main.go /go/src/countme
-WORKDIR /go/src/countme
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o countme main.go
+FROM openjdk:8-jre-alpine
+
+ADD target/faster-server-jar-with-dependencies.jar /app.jar
+
+
 EXPOSE 80
-ENTRYPOINT ./countme
+
+CMD java -jar /app.jar
+
