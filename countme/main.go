@@ -33,5 +33,5 @@ func (es *echoServer) React(frame []byte, c gnet.Conn) (out []byte, action gnet.
 
 func main() {
 	echo := new(echoServer)
-	log.Fatal(gnet.Serve(echo, "tcp://:8080"))
+	log.Fatal(gnet.Serve(echo, "tcp://:80"))
 }
