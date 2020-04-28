@@ -11,7 +11,7 @@ public class JettyServer {
     public void start() throws Exception {
         server = new Server();
         ServerConnector connector = new ServerConnector(server);
-        connector.setPort(8090);
+        connector.setPort(80);
         server.setConnectors(new Connector[]{connector});
 
         ServletHandler servletHandler = new ServletHandler();
