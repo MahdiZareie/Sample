@@ -1,5 +1,5 @@
 [package]
-name = "webserver"
+name = "countme"
 version = "0.1.0"
 authors = ["Mahdi Zareie <mahdi.elf@gmail.com>"]
 edition = "2018"
