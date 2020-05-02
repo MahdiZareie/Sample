@@ -1,8 +1,12 @@
-FROM golang:latest as build
-RUN go get -u github.com/panjf2000/gnet
-RUN mkdir -p /go/src/countme
-COPY main.go /go/src/countme
-WORKDIR /go/src/countme
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o countme main.go
+FROM rust as builder
+
+WORKDIR /app
+COPY . /app
+
+RUN cargo build --release
+
+FROM frolvlad/alpine-glibc
+
+COPY --from=builder /app/target/release/countme /countme
 EXPOSE 80
-ENTRYPOINT ./countme
+ENTRYPOINT ["/countme"]
