@@ -24,12 +24,20 @@
 use tokio;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::env;
 use std::error::Error;
 use regex::Regex;
 
-static mut SUM: i32 = 0;
+static mut SUM: AtomicI32 = AtomicI32::new(0);
+
+unsafe fn get_sum() -> i32 {
+    return *SUM.get_mut();
+}
+
+unsafe fn inc_sum(value: i32) -> () {
+    SUM.fetch_add(value, Ordering::SeqCst);
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -81,17 +89,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 unsafe {
                     if buf[0] == lower_g || buf[0] == upper_g {
                         socket
-                            .write_all(format!("HTTP/1.1 200 OK\n\n{value}\r\n", value = SUM).as_bytes())
+                            .write_all(format!("HTTP/1.1 200 OK\n\n{value}\r\n", value = get_sum()).as_bytes())
                             .await
                             .expect("failed to write data to socket");
                         break;
-
-
                     } else {
                         let q = String::from_utf8(buf[length - 10..length].to_vec()).unwrap();
                         let foo = &q;
                         let w = re.find(foo);
-                        SUM += w.unwrap().as_str().parse::<i32>().unwrap();
+                        inc_sum(w.unwrap().as_str().parse::<i32>().unwrap());
                         //println!("{}", SUM);
                         socket
                             .write_all(post_response)
