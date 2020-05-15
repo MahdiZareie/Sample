@@ -1,112 +1,81 @@
-//! A "hello world" echo server with Tokio
-//!
-//! This server will create a TCP listener, accept connections in a loop, and
-//! write back everything that's read off of each TCP connection.
-//!
-//! Because the Tokio runtime uses a thread pool, each TCP connection is
-//! processed concurrently with all other TCP connections across multiple
-//! threads.
-//!
-//! To see this server in action, you can run this in one terminal:
-//!
-//!     cargo run --example echo
-//!
-//! and in another terminal you can run:
-//!
-//!     cargo run --example connect 127.0.0.1:8080
-//!
-//! Each line you type in to the `connect` terminal should be echo'd back to
-//! you! If you open up multiple terminals running the `connect` example you
-//! should be able to see them all make progress simultaneously.
-
-#![warn(rust_2018_idioms)]
-
-use tokio;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-use std::sync::atomic::{AtomicI32, Ordering};
+//use std::thread;
+use std::net::{TcpListener, TcpStream, Shutdown};
+use std::io::{Read, Write};
+use std::str;
 use std::env;
-use std::error::Error;
-use regex::Regex;
 
-static mut SUM: AtomicI32 = AtomicI32::new(0);
 
-unsafe fn get_sum() -> i32 {
-    return *SUM.get_mut();
-}
+fn handle_client(mut stream: TcpStream, so_far: u32) -> u32 {
+    // this function is running to handle only one GET request or bunch of pipelined POST requests
 
-unsafe fn inc_sum(value: i32) -> () {
-    SUM.fetch_add(value, Ordering::SeqCst);
-}
+    let mut post_request: Option<String> = None; // All post request are the same, keep first one
+    let mut counter = 0u32; // only keep the count of request
+    let mut data = [0 as u8; 256]; // big enough buffer to read the whole request in one go
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+    // pre-calculated responses
+    let post_response = "HTTP/1.1 200 OK\ncontent-length: 0\n\n".as_bytes();
+    let get_response_text = format!("HTTP/1.1 200 OK\n\n{}\r\n", so_far);
+    let get_response = get_response_text.as_bytes();
 
-    // Allow passing an address to listen on as the first argument of this
-    // program, but otherwise we'll just set up our TCP listener on
-    // 127.0.0.1:8080 for connections.
-
-    let addr = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "0.0.0.0:80".to_string());
-
-    // Next up we create a TCP listener which will listen for incoming
-    // connections. This TCP listener is bound to the address we determined
-    // above and must be associated with an event loop.
-    let mut listener = TcpListener::bind(&addr).await?;
-    println!("Listening on: {}", addr);
-
-    let lower_g = 71;
-    let upper_g = 103;
-    let post_response = "HTTP/1.1 200 OK\n\n".as_bytes();
-
-    loop {
-        // Asynchronously wait for an inbound socket.
-        let (mut socket, _) = listener.accept().await?;
-
-        // And this is where much of the magic of this server happens. We
-        // crucially want all clients to make progress concurrently, rather than
-        // blocking one on completion of another. To achieve this we use the
-        // `tokio::spawn` function to execute the work in the background.
-        //
-        // Essentially here we're executing a new task to run concurrently,
-        // which will allow all of our clients to be processed concurrently.
-
-        tokio::spawn(async move {
-            let mut buf = [0; 150];
-            let re = Regex::new(r"(\d+)").unwrap();
-
-            // In a loop, read data from the socket and write the data back.
-            loop {
-                let length = socket
-                    .read(&mut buf)
-                    .await
-                    .expect("failed to read data from socket");
-
-                if length == 0 {
-                    return;
+    while match stream.peer_addr() {
+        Ok(_) => true,
+        _ => false
+    } {
+        match stream.read(&mut data) {
+            Ok(size) => {
+                if size == 0{
+                    break;
                 }
-                unsafe {
-                    if buf[0] == lower_g || buf[0] == upper_g {
-                        socket
-                            .write_all(format!("HTTP/1.1 200 OK\n\n{value}\r\n", value = get_sum()).as_bytes())
-                            .await
-                            .expect("failed to write data to socket");
-                        break;
-                    } else {
-                        let q = String::from_utf8(buf[length - 10..length].to_vec()).unwrap();
-                        let foo = &q;
-                        let w = re.find(foo);
-                        inc_sum(w.unwrap().as_str().parse::<i32>().unwrap());
-                        //println!("{}", SUM);
-                        socket
-                            .write_all(post_response)
-                            .await
-                            .expect("failed to write data to socket");
-                        break;
+                let incoming = String::from(str::from_utf8(&data[0..size]).unwrap());
+                let is_get = incoming.starts_with("G");
+                if is_get {
+                    stream.write(get_response).unwrap();
+                    break;
+                } else {
+                    if post_request == None {
+                        post_request = Some(incoming);
                     }
+                    counter += 1;
+                    stream.write(post_response).unwrap();
                 }
             }
-        });
+            Err(_) => {
+                break;
+            }
+        }
     }
+    stream.shutdown(Shutdown::Both).unwrap();
+
+    match post_request {
+        Some(r) => {
+            let vec: Vec<&str> = r.split("\n").collect();
+            let body: u32 = vec.last().unwrap().parse().unwrap();
+            return counter * body;
+        },
+        _ => {
+            return 0
+        }
+    }
+
 }
+
+fn main() {
+    let port = env::var("PORT").unwrap_or(String::from("80"));
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
+    let mut so_far = 0u32;
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                stream.set_nonblocking(false).unwrap();
+                let new_counter = handle_client(stream, so_far);
+                so_far += new_counter;
+            }
+            Err(e) => {
+                 println!("Error: {}", e);
+            }
+        }
+    }
+    drop(listener);
+}
+
+
