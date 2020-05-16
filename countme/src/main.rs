@@ -1,11 +1,14 @@
 //use std::thread;
 use std::net::{TcpListener, TcpStream, Shutdown};
 use std::io::{Read, Write};
-use std::str;
+use std::{str, thread};
 use std::env;
+use std::sync::atomic::Ordering;
+use std::sync::atomic::AtomicU32;
 
+static SUM: AtomicU32 = AtomicU32::new(0);
 
-fn handle_client(mut stream: TcpStream, so_far: u32) -> u32 {
+fn handle_client(mut stream: TcpStream) -> () {
     // this function is running to handle only one GET request or bunch of pipelined POST requests
 
     let mut post_request: Option<String> = None; // All post request are the same, keep first one
@@ -14,7 +17,7 @@ fn handle_client(mut stream: TcpStream, so_far: u32) -> u32 {
 
     // pre-calculated responses
     let post_response = "HTTP/1.1 200 OK\ncontent-length: 0\n\n".as_bytes();
-    let get_response_text = format!("HTTP/1.1 200 OK\n\n{}\r\n", so_far);
+    let get_response_text = format!("HTTP/1.1 200 OK\n\n{}\r\n", SUM.load(Ordering::SeqCst));
     let get_response = get_response_text.as_bytes();
 
     while match stream.peer_addr() {
@@ -50,11 +53,9 @@ fn handle_client(mut stream: TcpStream, so_far: u32) -> u32 {
         Some(r) => {
             let vec: Vec<&str> = r.split("\n").collect();
             let body: u32 = vec.last().unwrap().parse().unwrap();
-            return counter * body;
+            SUM.fetch_add(counter * body, Ordering::SeqCst);
         },
-        _ => {
-            return 0
-        }
+        _ => ()
     }
 
 }
@@ -62,13 +63,13 @@ fn handle_client(mut stream: TcpStream, so_far: u32) -> u32 {
 fn main() {
     let port = env::var("PORT").unwrap_or(String::from("80"));
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
-    let mut so_far = 0u32;
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 stream.set_nonblocking(false).unwrap();
-                let new_counter = handle_client(stream, so_far);
-                so_far += new_counter;
+                thread::spawn(move|| {
+                    handle_client(stream)
+                });
             }
             Err(e) => {
                  println!("Error: {}", e);
