@@ -20,22 +20,18 @@ fn handle_client(mut stream: TcpStream) -> () {
     let get_response_text = format!("HTTP/1.1 200 OK\n\n{}\r\n", SUM.load(Ordering::SeqCst));
     let get_response = get_response_text.as_bytes();
 
-    while match stream.peer_addr() {
-        Ok(_) => true,
-        _ => false
-    } {
+    while stream.peer_addr().is_ok() {
         match stream.read(&mut data) {
             Ok(size) => {
                 if size == 0{
                     break;
                 }
-                let incoming = String::from(str::from_utf8(&data[0..size]).unwrap());
-                let is_get = incoming.starts_with("G");
-                if is_get {
+                if data[0] == b'G' {
                     stream.write(get_response).unwrap();
                     break;
                 } else {
                     if post_request == None {
+                        let incoming = String::from(str::from_utf8(&data[0..size]).unwrap());
                         post_request = Some(incoming);
                     }
                     counter += 1;
