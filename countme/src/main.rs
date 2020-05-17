@@ -5,9 +5,10 @@ use std::{str, thread};
 use std::env;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::AtomicU32;
-use threadpool::ThreadPool;
+use crossbeam_queue::ArrayQueue;
+use std::sync::Arc;
 use std::time::Duration;
-use std::error::Error;
+use threadpool::ThreadPool;
 
 static SUM: AtomicU32 = AtomicU32::new(0);
 
@@ -22,11 +23,11 @@ fn handle_client(mut stream: TcpStream) -> () {
     let post_response = "HTTP/1.1 200 OK\ncontent-length: 0\n\n".as_bytes();
     let get_response_text = format!("HTTP/1.1 200 OK\n\n{}\r\n", SUM.load(Ordering::SeqCst));
     let get_response = get_response_text.as_bytes();
-    while stream.peer_addr().is_ok() {
 
+    while stream.peer_addr().is_ok() {
         match stream.read(&mut data) {
             Ok(size) => {
-                if size == 0{
+                if size == 0 {
                     break;
                 }
                 if data[0] == b'G' {
@@ -46,41 +47,47 @@ fn handle_client(mut stream: TcpStream) -> () {
             }
         }
     }
-    if let Err(e) = stream.shutdown(Shutdown::Both){
-        println!("shutdown error: {:?}", e);
-    };
+    stream.shutdown(Shutdown::Both).unwrap();
 
     match post_request {
         Some(r) => {
             let vec: Vec<&str> = r.split("\n").collect();
             let body: u32 = vec.last().unwrap().parse().unwrap();
             SUM.fetch_add(counter * body, Ordering::SeqCst);
-        },
+        }
         _ => ()
     }
-
 }
 
 fn main() {
     let port = env::var("PORT").unwrap_or(String::from("80"));
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
-    let pool = ThreadPool::new(100);
+    let listener = Arc::new(TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap());
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                stream.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
-                stream.set_nonblocking(false).unwrap();
-                pool.execute(move|| {
-                    handle_client(stream)
-                });
-            }
-            Err(e) => {
-                println!("Error: {}", e.to_string());
+    let q = Arc::new(ArrayQueue::<TcpStream>::new(1000));
+
+    let cloned_listener = Arc::clone(&listener);
+    let cloned_q = Arc::clone(&q);
+
+    thread::spawn(move || {
+        for stream in cloned_listener.incoming() {
+            if let Ok(stream) = stream {
+                if let Err(e) = cloned_q.push(stream) {
+                    println!("{:?}", e);
+                }
             }
         }
+    });
+
+    let cloned_q = Arc::clone(&q);
+    let pool = ThreadPool::new(150);
+    loop {
+        if let Ok(stream) = cloned_q.pop() {
+            stream.set_read_timeout(Some(Duration::from_millis(40))).unwrap();
+            pool.execute(move|| {
+                handle_client(stream)
+            });
+        }
     }
-    drop(listener);
 }
 
 
