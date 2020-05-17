@@ -5,6 +5,9 @@ use std::{str, thread};
 use std::env;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::AtomicU32;
+use threadpool::ThreadPool;
+use std::time::Duration;
+use std::error::Error;
 
 static SUM: AtomicU32 = AtomicU32::new(0);
 
@@ -19,8 +22,8 @@ fn handle_client(mut stream: TcpStream) -> () {
     let post_response = "HTTP/1.1 200 OK\ncontent-length: 0\n\n".as_bytes();
     let get_response_text = format!("HTTP/1.1 200 OK\n\n{}\r\n", SUM.load(Ordering::SeqCst));
     let get_response = get_response_text.as_bytes();
-
     while stream.peer_addr().is_ok() {
+
         match stream.read(&mut data) {
             Ok(size) => {
                 if size == 0{
@@ -43,7 +46,9 @@ fn handle_client(mut stream: TcpStream) -> () {
             }
         }
     }
-    stream.shutdown(Shutdown::Both).unwrap();
+    if let Err(e) = stream.shutdown(Shutdown::Both){
+        println!("shutdown error: {:?}", e);
+    };
 
     match post_request {
         Some(r) => {
@@ -59,16 +64,19 @@ fn handle_client(mut stream: TcpStream) -> () {
 fn main() {
     let port = env::var("PORT").unwrap_or(String::from("80"));
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
+    let pool = ThreadPool::new(100);
+
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
+                stream.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
                 stream.set_nonblocking(false).unwrap();
-                thread::spawn(move|| {
+                pool.execute(move|| {
                     handle_client(stream)
                 });
             }
             Err(e) => {
-                 println!("Error: {}", e);
+                println!("Error: {}", e.to_string());
             }
         }
     }
